@@ -6,8 +6,8 @@ External-vantage port scan watchdog for Andrei's infrastructure. Public repo so 
 
 Every 30 minutes, a GHA workflow runs `nmap -sT -Pn --open -p-` from a GitHub-hosted runner against:
 
-- **zam-server** (Hetzner Helsinki, `89.167.36.90`) — expected `22/tcp, 80/tcp`
-- **skandok-vps** (Timeweb Moscow, `72.56.37.86`) — expected `22/tcp, 80/tcp, 443/tcp`
+- **zam-server** (Hetzner Helsinki, `89.167.36.90`) — expected `22/tcp` only. Port 80 is Cloudflare-whitelisted via `cloudflare-firewall.sh` (DOCKER-USER chain), so non-CF IPs (including the GHA runner) cannot reach it. If port 80 ever appears in a scan, the CF whitelist has regressed.
+- **skandok-vps** (Timeweb Moscow, `72.56.37.86`) — expected `22/tcp, 80/tcp, 443/tcp`. Skandok serves bookkeeping clients directly with no CF whitelist; all three ports must remain visible.
 
 If the observed port set differs from the baseline, the workflow sends a Telegram alert to the security-alerts bot. This catches:
 

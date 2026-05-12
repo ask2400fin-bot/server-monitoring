@@ -34,8 +34,13 @@ jobs:
 
       - name: Compare to expected baseline
         id: diff
+        # zam-server's port 80 is Cloudflare-whitelisted via cloudflare-firewall.sh
+        # (only CF IP ranges can reach it). A GHA runner is NOT a CF IP, so it sees
+        # only port 22. If port 80 ever appears here, the CF whitelist regressed
+        # (cloudflare-firewall.sh rewrite broken / DOCKER-USER chain flushed without
+        # repopulation) — that's a legitimate alert.
         env:
-          ZAM_EXPECTED: '22/tcp,80/tcp,'
+          ZAM_EXPECTED: '22/tcp,'
           SKD_EXPECTED: '22/tcp,80/tcp,443/tcp,'
           ZAM_ACTUAL: ${{ steps.zam.outputs.ports }}
           SKD_ACTUAL: ${{ steps.skd.outputs.ports }}
@@ -63,7 +68,7 @@ jobs:
             echo "::error::Telegram secrets (SECURITY_BOT_TOKEN, TG_CHAT_ID) not configured — alert NOT delivered"
             exit 1
           fi
-          MSG="External port-scan diff detected.\nzam-server (89.167.36.90): $ZAM_ACTUAL (expected 22/tcp,80/tcp,)\nskandok-vps (72.56.37.86): $SKD_ACTUAL (expected 22/tcp,80/tcp,443/tcp,)\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MSG="External port-scan diff detected.\nzam-server (89.167.36.90): $ZAM_ACTUAL (expected 22/tcp,)\nskandok-vps (72.56.37.86): $SKD_ACTUAL (expected 22/tcp,80/tcp,443/tcp,)\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           curl -sS --fail -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${CHAT_ID}" \
             --data-urlencode "text=${MSG}"
