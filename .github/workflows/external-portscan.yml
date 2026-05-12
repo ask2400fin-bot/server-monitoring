@@ -1,0 +1,69 @@
+name: External Port Scan
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Install nmap
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nmap
+
+      - name: Scan zam-server (Hetzner Helsinki, 89.167.36.90)
+        id: zam
+        run: |
+          OUT=$(nmap -sT -Pn --open -p- 89.167.36.90 -T4 --host-timeout 15m \
+                | grep -E '^[0-9]+/tcp' | awk '{print $1}' | sort -n | tr '\n' ',')
+          echo "ports=$OUT" >> $GITHUB_OUTPUT
+          echo "zam: $OUT"
+
+      - name: Scan skandok-vps (Timeweb Moscow, 72.56.37.86)
+        id: skd
+        run: |
+          OUT=$(nmap -sT -Pn --open -p- 72.56.37.86 -T4 --host-timeout 15m \
+                | grep -E '^[0-9]+/tcp' | awk '{print $1}' | sort -n | tr '\n' ',')
+          echo "ports=$OUT" >> $GITHUB_OUTPUT
+          echo "skd: $OUT"
+
+      - name: Compare to expected baseline
+        id: diff
+        env:
+          ZAM_EXPECTED: '22/tcp,80/tcp,'
+          SKD_EXPECTED: '22/tcp,80/tcp,443/tcp,'
+          ZAM_ACTUAL: ${{ steps.zam.outputs.ports }}
+          SKD_ACTUAL: ${{ steps.skd.outputs.ports }}
+        run: |
+          DIFF=0
+          if [ "$ZAM_ACTUAL" != "$ZAM_EXPECTED" ]; then
+            echo "::warning::zam-server port diff: expected=$ZAM_EXPECTED got=$ZAM_ACTUAL"
+            DIFF=1
+          fi
+          if [ "$SKD_ACTUAL" != "$SKD_EXPECTED" ]; then
+            echo "::warning::skandok-vps port diff: expected=$SKD_EXPECTED got=$SKD_ACTUAL"
+            DIFF=1
+          fi
+          echo "diff=$DIFF" >> $GITHUB_OUTPUT
+
+      - name: Send Telegram alert
+        if: steps.diff.outputs.diff == '1'
+        env:
+          BOT_TOKEN: ${{ secrets.SECURITY_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          ZAM_ACTUAL: ${{ steps.zam.outputs.ports }}
+          SKD_ACTUAL: ${{ steps.skd.outputs.ports }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "::error::Telegram secrets (SECURITY_BOT_TOKEN, TG_CHAT_ID) not configured — alert NOT delivered"
+            exit 1
+          fi
+          MSG="External port-scan diff detected.\nzam-server (89.167.36.90): $ZAM_ACTUAL (expected 22/tcp,80/tcp,)\nskandok-vps (72.56.37.86): $SKD_ACTUAL (expected 22/tcp,80/tcp,443/tcp,)\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sS --fail -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT_ID}" \
+            --data-urlencode "text=${MSG}"
