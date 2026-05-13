@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 
+# Single source of truth for the IPs being scanned. Update both values + the
+# baselines in the "Compare" step if a server migrates to a new IP. RECOVERY
+# step 11 ("IP будет другой — запомнить!") explicitly cross-references this
+# block in /home/zam/RECOVERY.md.
+env:
+  ZAM_IP: '89.167.36.90'
+  SKD_IP: '72.56.37.86'
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -16,21 +24,21 @@ jobs:
       - name: Install nmap
         run: sudo apt-get update -qq && sudo apt-get install -y -qq nmap
 
-      - name: Scan zam-server (Hetzner Helsinki, 89.167.36.90)
+      - name: Scan zam-server (Hetzner Helsinki)
         id: zam
         run: |
-          OUT=$(nmap -sT -Pn --open -p- 89.167.36.90 -T4 --host-timeout 15m \
+          OUT=$(nmap -sT -Pn --open -p- "$ZAM_IP" -T4 --host-timeout 15m \
                 | grep -E '^[0-9]+/tcp' | awk '{print $1}' | sort -n | tr '\n' ',')
           echo "ports=$OUT" >> $GITHUB_OUTPUT
-          echo "zam: $OUT"
+          echo "zam ($ZAM_IP): $OUT"
 
-      - name: Scan skandok-vps (Timeweb Moscow, 72.56.37.86)
+      - name: Scan skandok-vps (Timeweb Moscow)
         id: skd
         run: |
-          OUT=$(nmap -sT -Pn --open -p- 72.56.37.86 -T4 --host-timeout 15m \
+          OUT=$(nmap -sT -Pn --open -p- "$SKD_IP" -T4 --host-timeout 15m \
                 | grep -E '^[0-9]+/tcp' | awk '{print $1}' | sort -n | tr '\n' ',')
           echo "ports=$OUT" >> $GITHUB_OUTPUT
-          echo "skd: $OUT"
+          echo "skd ($SKD_IP): $OUT"
 
       - name: Compare to expected baseline
         id: diff
@@ -47,11 +55,11 @@ jobs:
         run: |
           DIFF=0
           if [ "$ZAM_ACTUAL" != "$ZAM_EXPECTED" ]; then
-            echo "::warning::zam-server port diff: expected=$ZAM_EXPECTED got=$ZAM_ACTUAL"
+            echo "::warning::zam-server ($ZAM_IP) port diff: expected=$ZAM_EXPECTED got=$ZAM_ACTUAL"
             DIFF=1
           fi
           if [ "$SKD_ACTUAL" != "$SKD_EXPECTED" ]; then
-            echo "::warning::skandok-vps port diff: expected=$SKD_EXPECTED got=$SKD_ACTUAL"
+            echo "::warning::skandok-vps ($SKD_IP) port diff: expected=$SKD_EXPECTED got=$SKD_ACTUAL"
             DIFF=1
           fi
           echo "diff=$DIFF" >> $GITHUB_OUTPUT
@@ -68,7 +76,13 @@ jobs:
             echo "::error::Telegram secrets (SECURITY_BOT_TOKEN, TG_CHAT_ID) not configured — alert NOT delivered"
             exit 1
           fi
-          MSG="External port-scan diff detected.\nzam-server (89.167.36.90): $ZAM_ACTUAL (expected 22/tcp,)\nskandok-vps (72.56.37.86): $SKD_ACTUAL (expected 22/tcp,80/tcp,443/tcp,)\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # ANSI-C quoting so \n renders as actual newline in Telegram
+          # (previously double-quoted \n was treated as literal 2-char escape
+          # and url-encoded to %5Cn — alert showed as one ugly run-on string).
+          MSG=$'External port-scan diff detected.\n'
+          MSG+="zam-server ($ZAM_IP): $ZAM_ACTUAL (expected 22/tcp,)"$'\n'
+          MSG+="skandok-vps ($SKD_IP): $SKD_ACTUAL (expected 22/tcp,80/tcp,443/tcp,)"$'\n'
+          MSG+="Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           curl -sS --fail -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${CHAT_ID}" \
             --data-urlencode "text=${MSG}"

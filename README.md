@@ -50,3 +50,15 @@ Until both secrets are set, scans still run but alerts emit a workflow error (vi
 ## Baseline maintenance
 
 Expected port sets are hardcoded in `.github/workflows/external-portscan.yml` under `ZAM_EXPECTED` / `SKD_EXPECTED`. Update both whenever a server's authorised surface changes (e.g. adding `443/tcp` to zam-server after origin TLS migration).
+
+## IP changes (disaster recovery)
+
+Target IPs live in a single top-level `env:` block at the top of `.github/workflows/external-portscan.yml`:
+
+```yaml
+env:
+  ZAM_IP: '89.167.36.90'
+  SKD_IP: '72.56.37.86'
+```
+
+If either server is rebuilt under a new IP (Hetzner / Timeweb account move, region migration, etc.), update **both** the `env:` block here AND the IP references in `RECOVERY.md` on zam-server (search for `89.167.36.90` and `72.56.37.86`). RECOVERY.md step 11 already calls out "IP будет другой — запомнить!" — keep this workflow in lockstep with it.
