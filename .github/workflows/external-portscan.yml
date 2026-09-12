@@ -12,9 +12,34 @@ permissions:
 # baselines in the "Compare" step if a server migrates to a new IP. RECOVERY
 # step 11 ("IP будет другой — запомнить!") explicitly cross-references this
 # block in /home/zam/RECOVERY.md.
+#
+# =====================================================================================
+# 🔴 skandok-vps (SKD_IP 72.56.37.86) WAS REMOVED 2026-09-12 — the machine is gone.
+#
+# Measured, not assumed: the Timeweb Cloud VM disappeared between 2026-09-11 08:00Z and
+# 2026-09-12 03:25Z — no ping, no 22/80/443, HTTP 000, and its Timeweb hostname
+# 7586497-xr707288.twc1.net stopped resolving (NXDOMAIN), which looks like the VM was
+# deleted rather than merely stopped. Verified from zam-server that this is neither our
+# network nor a regional block: timeweb.cloud itself answers HTTP 200 from there.
+# Likely cause (Andrei's reading): Oleg stopped paying. Timeweb Cloud debits a prepaid
+# balance daily, so there is no renewal date — the server stops when the balance runs
+# dry. That also fits the first outage on 2026-05-24, day 28 of its life: down 34 hours,
+# recovered by itself, then ran another 110 days.
+#
+# Why it had to come out of here specifically: a dead IP scans to an empty port list
+# every 30 minutes, the diff never clears, so the debounce counter re-fires a Telegram
+# alert every third run — forever, about a machine nobody intends to fix.
+#
+# ✅ TO RESTORE if the project is revived — four small edits, all in this file:
+#      env:   SKD_IP: '<new ip>'                ← it WILL be a different IP; read the panel
+#      step:  "Scan skandok-vps", same shape as the zam step below
+#      diff:  SKD_EXPECTED: '22/tcp,80/tcp,443/tcp,' plus its comparison branch
+#      alert: the "skandok-vps (...)" line in MSG
+#    Everything switched off on zam-server for the same reason, and how to undo it, is in
+#    ~/.claude/projects/-home-zam/memory/ARCHIVE.md, section "SKANDOK ПОГАШЕН".
+# =====================================================================================
 env:
   ZAM_IP: '89.167.36.90'
-  SKD_IP: '72.56.37.86'
   # TEMPORARY sensitivity reduction (2026-05-26): alert fires only after N
   # consecutive runs all return a diff. Filters false-positives caused by
   # GHA-runner network jitter that surfaced after Session 2 firewall hardening
@@ -48,14 +73,6 @@ jobs:
           echo "ports=$OUT" >> $GITHUB_OUTPUT
           echo "zam ($ZAM_IP): $OUT"
 
-      - name: Scan skandok-vps (Timeweb Moscow)
-        id: skd
-        run: |
-          OUT=$(nmap -sT -Pn --open -p- "$SKD_IP" -T4 --host-timeout 15m \
-                | grep -E '^[0-9]+/tcp' | awk '{print $1}' | sort -n | tr '\n' ',')
-          echo "ports=$OUT" >> $GITHUB_OUTPUT
-          echo "skd ($SKD_IP): $OUT"
-
       - name: Compare to expected baseline
         id: diff
         # zam-server's port 80 is Cloudflare-whitelisted via cloudflare-firewall.sh
@@ -65,17 +82,11 @@ jobs:
         # repopulation) — that's a legitimate alert.
         env:
           ZAM_EXPECTED: '22/tcp,'
-          SKD_EXPECTED: '22/tcp,80/tcp,443/tcp,'
           ZAM_ACTUAL: ${{ steps.zam.outputs.ports }}
-          SKD_ACTUAL: ${{ steps.skd.outputs.ports }}
         run: |
           DIFF=0
           if [ "$ZAM_ACTUAL" != "$ZAM_EXPECTED" ]; then
             echo "::warning::zam-server ($ZAM_IP) port diff: expected=$ZAM_EXPECTED got=$ZAM_ACTUAL"
-            DIFF=1
-          fi
-          if [ "$SKD_ACTUAL" != "$SKD_EXPECTED" ]; then
-            echo "::warning::skandok-vps ($SKD_IP) port diff: expected=$SKD_EXPECTED got=$SKD_ACTUAL"
             DIFF=1
           fi
           echo "diff=$DIFF" >> $GITHUB_OUTPUT
@@ -110,7 +121,6 @@ jobs:
           BOT_TOKEN: ${{ secrets.SECURITY_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           ZAM_ACTUAL: ${{ steps.zam.outputs.ports }}
-          SKD_ACTUAL: ${{ steps.skd.outputs.ports }}
           CONSECUTIVE: ${{ steps.counter.outputs.consecutive }}
         run: |
           if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
@@ -122,7 +132,6 @@ jobs:
           # and url-encoded to %5Cn — alert showed as one ugly run-on string).
           MSG=$'External port-scan diff detected.\n'
           MSG+="zam-server ($ZAM_IP): $ZAM_ACTUAL (expected 22/tcp,)"$'\n'
-          MSG+="skandok-vps ($SKD_IP): $SKD_ACTUAL (expected 22/tcp,80/tcp,443/tcp,)"$'\n'
           MSG+="Persisted: $CONSECUTIVE consecutive runs (threshold $ALERT_THRESHOLD)"$'\n'
           MSG+="Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           curl -sS --fail -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
