@@ -40,14 +40,13 @@ permissions:
 # =====================================================================================
 env:
   ZAM_IP: '89.167.36.90'
-  # TEMPORARY sensitivity reduction (2026-05-26): alert fires only after N
-  # consecutive runs all return a diff. Filters false-positives caused by
-  # GHA-runner network jitter that surfaced after Session 2 firewall hardening
-  # (T1.2 Hetzner edge FW 2026-05-23 + T1.3 iptables deny-by-default 2026-05-21).
-  # **REVERT to '1' when root cause is fixed** — tracked in security-program.md
-  # T1.13 + Session 3 handoff. Threshold raised here, not removed, so a real
-  # persistent change still alerts within N * 30 min.
-  ALERT_THRESHOLD: '3'
+  # Debounce: alert fires after N consecutive runs that all return a diff.
+  # Was '3' as a TEMPORARY reduction from 2026-05-26 (GHA-runner jitter after the
+  # Session 2 firewall hardening); reverted to '1' on 2026-11-25 (security review N6.2):
+  # the last 30 runs show no diff at all (counter 0/3 in each), and at the real
+  # schedule GitHub gives this repo (a run every ~5 h, not every 30 min) a threshold
+  # of 3 meant a new public port was reported ~15 h late.
+  ALERT_THRESHOLD: '1'
 
 jobs:
   scan:
